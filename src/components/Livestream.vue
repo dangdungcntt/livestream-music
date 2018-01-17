@@ -18,7 +18,10 @@
                                 <img :src="_.get(comment, 'from.picture.data.url', 'https://i.imgur.com/GpaLu2q.png')">
                             </v-list-tile-avatar>
                             <v-list-tile-content>
-                                <v-list-tile-title v-text="_.get(comment, 'from.name', 'Anonymous')"/>
+                                <v-list-tile-title :style="{
+                                    color: getVipConfig({id: comment.from.id, path: 'color'}),
+                                    'font-weight': getVipConfig({id: comment.from.id, path: 'font-weight'}),
+                                }" v-text="_.get(comment, 'from.name', 'Anonymous')"/>
                                 <v-list-tile-sub-title v-text="_.get(comment, 'message', 'Empty')"/>
                             </v-list-tile-content>
                         </v-list-tile>
@@ -65,8 +68,6 @@
         font-size: 16px;">Top
             </div>
             <ul class="list-videos top" style="height: 175px; position: relative">
-                <!--v-for="link in listVideo" ::key="link" :style="{ top: (link.position * 35) + 'px'}"-->
-                <!--v-if="link.index === curIndex"-->
                 <li class="moving-item video-container"
                     v-for="video in top3Video"
                     :style="{ top: (video.position * 56) + 'px'}">
@@ -94,7 +95,7 @@
         margin-left: 18px;
         font-size: 16px;">All
             </div>
-            <div style="height:285px;overflow: hidden; position: relative">
+            <div style="height:283px;overflow: hidden; position: relative">
                 <ul class="list-videos queue"
                     :style="{
                         transition: (queueLength * 1500) + 'ms linear',
@@ -131,34 +132,18 @@
     export default {
         name: "livestream",
         data() {
+            let vipConfig = new Map();
+            vipConfig.set('100006472931102', {color: '#fa3c4c', 'font-weight': 'bold'});
+            vipConfig.set('100006487845973', {color: '#8227e3', 'font-weight': 'bold'});
             return {
-                queueIndex: -1,
-                listVideoInQueue: [
-
-                ],
-                playedVideo: new Map(),
-                sortedListVideo: [],
-                rawComments: [
-                    {
-                        "from": {
-                            "picture": {
-                                "data": {
-                                    "height": 50,
-                                    "is_silhouette": false,
-                                    "url": "https://scontent.xx.fbcdn.net/v/t1.0-1/p50x50/15578812_2063545387205036_3839048549796851743_n.jpg?oh=2f65df51f23b7151c14c4a9bafc188a5&oe=5AEFBA18",
-                                    "width": 50
-                                }
-                            },
-                            "name": "Nguyễn Đăng Dũng",
-                            "id": "1677028372523408"
-                        },
-                        "message": "https://www.youtube.com/watch?v=V-mP3VU0DCg Chúc mọi người buổi tối vui vẻ :D",
-                        "id": "851143101731199"
-                    }
-                ],
-                displayComments: [
-
-                ],
+                vipConfig,
+                voteMap: new Map(),
+                maxVote: 5,
+                countSpamComment: new Map(),
+                spamCheck: 5,
+                prevFromId: '',
+                rawComments: [],
+                displayComments: [],
                 displayedComments: new Map(),
                 cutComment: 1,
                 next_page_comment: undefined,
@@ -168,8 +153,12 @@
                 maxDuration: YTHelper.convertYouTubeDuration('PT8M'),
                 playingVideo: {},
                 playing: false,
-                queueLength: 0,
                 queueTop: 0,
+                queueLength: 0,
+                queueIndex: -1,
+                listVideoInQueue: [],
+                sortedListVideo: [],
+                playedVideo: new Map(),
                 scrolling: false,
             }
         },
@@ -178,7 +167,7 @@
             this.changeOrder();
             if (this.sortedListVideo.length > 0) {
                 this.ended();
-                setTimeout(this.scrollQueueToTop, 4000);
+                setTimeout(this.scrollQueueToTop, 2000);
             }
             this.loadComment();
         },
@@ -197,6 +186,12 @@
             }
         },
         methods: {
+            getVipConfig({id, path}) {
+                if (this.vipConfig.has(id)) {
+                    return _.get(this.vipConfig.get(id), path);
+                }
+                return 'initial';
+            },
             async loadComment() {
               this.itvLoadComment = setInterval(async () => {
                   if (this.rawComments.length > 0) {
@@ -207,14 +202,7 @@
               }, 4000);
             },
             async hasRawComment() {
-                let comment = this.rawComments.splice(0, 1)[0];
-
-                while (this.displayedComments.has(comment.id) && this.rawComments.length > 0) {
-                    comment = this.rawComments.splice(0, 1)[0]
-                }
-                if (this.displayedComments.has(comment.id)) return;
-
-                this.displayComments.push(comment);
+                //cut list comment displayed
                 if (this.displayComments.length > 10) {
                     setTimeout(() => {
                         this.cutComment = 0;
@@ -224,13 +212,83 @@
                         this.cutComment = 1;
                     }, 2500);
                 }
-                this.displayedComments.set(comment.id, true);
+
+                //remove all comment displayed
+                let comment = this.rawComments.splice(0, 1)[0];
+                while (this.displayedComments.has(comment.id) && this.rawComments.length > 0) {
+                    comment = this.rawComments.splice(0, 1)[0]
+                }
+                if (this.displayedComments.has(comment.id)) return;
+
+                let commentId = _.get(comment, 'id');
+                let fromId = _.get(comment, 'from.id');
+                this.displayedComments.set(commentId, true);
+
+                //super user
+                if (fromId.toString() === '100006487845973' && _.get(comment, 'message') === 'sudo control next') {
+                    this.ended();
+                    return
+                }
+
+                //check spam
+                if (this.prevFromId === fromId && fromId.toString() !== '100006487845973') {
+                    let c = this.countSpamComment.get(fromId);
+                    if (c + 1 > this.spamCheck) {
+                        return;
+                    }
+                    this.countSpamComment.set(fromId, c + 1)
+                } else {
+                    this.countSpamComment.set(this.prevFromId, 0);
+                    this.countSpamComment.set(fromId, 1);
+                    this.prevFromId = fromId;
+                }
+
+                //comment is number => vote
+                let voteForIndex = +comment.message;
+                if (!_.isNaN(voteForIndex)) {
+                    //if exists => vote
+                    let exists = false;
+                    for (let video of this.listVideoInQueue) {
+                        if (video.index === voteForIndex - 1) {
+                            if (_.get(video, 'from.id') === fromId) { //cannot vote for self video
+                                return;
+                            }
+
+                            //check max vote for per video
+                            let key = fromId + '_' + voteForIndex;
+                            if (this.voteMap.has(key)) {
+                                let curVote = this.voteMap.get(key);
+                                if (curVote + 1 > this.maxVote) {
+                                    return;
+                                }
+                                this.voteMap.set(key, curVote + 1);
+                            } else {
+                                this.voteMap.set(key, 1);
+                            }
+                            video.vote = video.vote + 1;
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (exists) {
+                        this.displayComments.push(comment);
+                        this.changeOrder();
+                        if (!this.playing) {
+                            this.ended(); //call ended to play first video in queue
+                        }
+                    }
+                    return;
+                }
+
+                this.displayComments.push(comment);
+
                 let youtubeLink = YTHelper.detectLinkYoutube({str: comment.message});
-                if (youtubeLink) {
-                    let idVideo = YTHelper.getVideoId({url: youtubeLink});
+                if (youtubeLink) { //comment has youtube link
+                    let idVideo = YTHelper.getVideoId({url: youtubeLink}); //get id video
 
-                    if (this.playedVideo.has(idVideo)) return;
+                    if (this.playedVideo.has(idVideo)) return; //played, ignore
 
+                    //if exists => vote
                     let exists = false;
                     for (let video of this.listVideoInQueue) {
                         if (video.id === idVideo) {
@@ -239,48 +297,35 @@
                             break;
                         }
                     }
+                    //not exists => push to queue
                     if (!exists) {
-                        let data = await YTHelper.fetchVideoInfo({vid: idVideo});
-                        if (!data) return;
+                        let data = await YTHelper.fetchVideoInfo({vid: idVideo}); //get infor from youtube API
+                        if (!data) return; //not found
 
                         let videoInfo = data[0];
-                        let videoDuration = YTHelper.convertYouTubeDuration(_.get(videoInfo, 'contentDetails.duration'));
 
+                        //check max duration
+                        let videoDuration = YTHelper.convertYouTubeDuration(_.get(videoInfo, 'contentDetails.duration'));
                         if (videoDuration > this.maxDuration) return;
 
+                        //push to queue
                         this.queueIndex = this.queueIndex + 1;
                         this.listVideoInQueue.push({
-                            from: comment.from,
+                            from: comment.from, //owner
                             message: comment.message.replace(youtubeLink, ''),
                             id: idVideo,
-                            name: _.get(videoInfo, 'snippet.title'),
-                            index: this.queueIndex,
-                            position: this.listVideoInQueue.length,
-                            src: _.get(videoInfo, 'snippet.thumbnails.default.url'),
+                            name: _.get(videoInfo, 'snippet.title'), //name video
+                            index: this.queueIndex, //index for vote
+                            position: this.listVideoInQueue.length, //postion for animation change order
+                            src: _.get(videoInfo, 'snippet.thumbnails.default.url'), //src of img
                             vote: 1
                         });
                         this.scrollQueueToTop();
                     }
                     this.changeOrder();
-                    if (!this.playing) {
-                        this.ended();
+                    if (!this.playing) { //if not playing
+                        this.ended(); //call ended to play first video in queue
                     }
-                    return;
-                }
-                let voteForIndex = +comment.message;
-                if (_.isNaN(voteForIndex)) return;
-
-                let exists = false;
-                for (let video of this.listVideoInQueue) {
-                    if (video.index === voteForIndex - 1) {
-                        video.vote = video.vote + 1;
-                        exists = true;
-                        break;
-                    }
-                }
-                if (exists) this.changeOrder();
-                if (!this.playing) {
-                    this.ended();
                 }
             },
             async fetchNewComment() {
@@ -298,20 +343,23 @@
             },
             scrollQueueToTop() {
                 if (this.scrolling) return;
+                //queue can display 6 video at time
                 if (this.listVideoInQueue.length < 6) {
                     this.queueLength = 0;
-                    this.queueTop = '0';
+                    this.queueTop = 0;
                     return
                 }
                 this.queueLength = this.listVideoInQueue.length;
                 this.queueTop = (-57 * this.queueLength) + 'px';
                 this.scrolling = true;
+
+                //time out when complete animation scroll
                 setTimeout(() => {
-                    this.queueLength = 0;
-                    this.queueTop = '310px';
+                    this.queueLength = 0; //set transition = 0
+                    this.queueTop = '310px'; //move queue to bottom
                     this.scrolling = false;
                     setTimeout(() => {
-                        this.scrollQueueToTop();
+                        this.scrollQueueToTop(); //continute scroll
                     }, 100);
                 }, this.queueLength * 1500)
             },
@@ -326,7 +374,7 @@
             },
             ended() {
                 this.playing = false;
-                if (this.listVideoInQueue.length === 0) return;
+                if (this.listVideoInQueue.length === 0) return; //queue is empty
                 this.playingVideo = this.sortedListVideo.splice(0, 1)[0];
                 this.listVideoInQueue = this.listVideoInQueue.filter(video => video.index !== this.playingVideo.index);
                 this.changeOrder();
@@ -334,10 +382,7 @@
             },
             setPlaying() {
                 this.playing = true;
-                this.playedVideo.set(this.playingVideo.id, true);
-            },
-            getId({link}) {
-                return this.$youtube.getIdFromUrl(link)
+                this.playedVideo.set(this.playingVideo.id, true); //mark video is played
             },
             changeOrder() {
                 let self = this;
