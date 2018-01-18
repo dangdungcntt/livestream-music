@@ -11,7 +11,8 @@
                     @ended="ended()"
             />
             <v-layout column style="height: 214px;overflow: hidden;position: relative;">
-                <v-list two-line :style="{bottom: (72 * (displayComments.length - 3)) + 'px', position: 'relative', transition: cutComment + 's'}">
+                <v-list two-line
+                        :style="{bottom: (72 * (displayComments.length - 3)) + 'px', position: 'relative', transition: cutComment + 's'}">
                     <template v-for="comment in displayComments">
                         <v-list-tile avatar :key="_.get(comment, 'id')" @click="">
                             <v-list-tile-avatar>
@@ -36,8 +37,8 @@
         margin-left: 18px;
         font-size: 16px;">Playing
             </div>
-            <ul class="list-videos" style="height: 60px">
-                <li class="moving-item video-container" v-if=" ! _.isEqual(playingVideo, {})">
+            <ul class="list-videos" style="height: 50px">
+                <li class="moving-item video-container" v-if=" ! _.isEqual(playingVideo, {})" style="margin-bottom: 0">
                     <span class="video-index">▶</span>
                     <div class="video-thumbnail-container">
                         <img :src="playingVideo.src" alt="">
@@ -49,7 +50,7 @@
                     </div>
                 </li>
             </ul>
-            <v-list two-line v-if=" ! _.isEqual(playingVideo, {})">
+            <v-list two-line v-if=" ! _.isEqual(playingVideo, {})" style="padding: 0">
                 <v-list-tile avatar :key="_.get(playedVideo, 'id')" @click="">
                     <v-list-tile-avatar>
                         <img :src="_.get(playingVideo, 'from.picture.data.url', 'https://i.imgur.com/GpaLu2q.png')">
@@ -80,6 +81,9 @@
                             {{video.name}}
                         </div>
                     </div>
+                    <div class="video-from-container">
+                        <img :src="_.get(video, 'from.picture.data.url', 'https://i.imgur.com/GpaLu2q.png')">
+                    </div>
                     <div class="video-vote-container">
                         <span class="vote">
                             {{video.vote}}
@@ -95,7 +99,7 @@
         margin-left: 18px;
         font-size: 16px;">All
             </div>
-            <div style="height:283px;overflow: hidden; position: relative">
+            <div style="height:308px;overflow: hidden; position: relative">
                 <ul class="list-videos queue"
                     :style="{
                         transition: (queueLength * 1500) + 'ms linear',
@@ -103,7 +107,7 @@
                     <li class="moving-item video-container"
                         v-for="video in listVideoInQueue"
                         :style="{ top: (video.position * 56) + 'px'}">
-                        <span class="video-index">{{video.index + 1}}</span>
+                        <div class="video-index">{{video.index + 1}}</div>
                         <div class="video-thumbnail-container">
                             <img :src="video.src" alt="">
                         </div>
@@ -111,6 +115,9 @@
                             <div class="video-meta-title">
                                 {{video.name}}
                             </div>
+                        </div>
+                        <div class="video-from-container">
+                            <img :src="_.get(video, 'from.picture.data.url', 'https://i.imgur.com/GpaLu2q.png')">
                         </div>
                         <div class="video-vote-container">
                         <span class="vote">
@@ -129,6 +136,7 @@
 <script>
     import YTHelper from 'libs/youtube-helpers'
     import FBHelper from 'libs/fb-helpers'
+
     export default {
         name: "livestream",
         data() {
@@ -193,13 +201,13 @@
                 return 'initial';
             },
             async loadComment() {
-              this.itvLoadComment = setInterval(async () => {
-                  if (this.rawComments.length > 0) {
-                      this.hasRawComment();
-                  } else {
-                      this.fetchNewComment();
-                  }
-              }, 4000);
+                this.itvLoadComment = setInterval(async () => {
+                    if (this.rawComments.length > 0) {
+                        this.hasRawComment();
+                    } else {
+                        this.fetchNewComment();
+                    }
+                }, 4000);
             },
             async hasRawComment() {
                 //cut list comment displayed
@@ -280,8 +288,6 @@
                     return;
                 }
 
-                this.displayComments.push(comment);
-
                 let youtubeLink = YTHelper.detectLinkYoutube({str: comment.message});
                 if (youtubeLink) { //comment has youtube link
                     let idVideo = YTHelper.getVideoId({url: youtubeLink}); //get id video
@@ -310,9 +316,11 @@
 
                         //push to queue
                         this.queueIndex = this.queueIndex + 1;
+                        let message = comment.message.replace(youtubeLink, '');
+                        if (message.length > 100) message = message.substr(0, 100);
                         this.listVideoInQueue.push({
                             from: comment.from, //owner
-                            message: comment.message.replace(youtubeLink, ''),
+                            message,
                             id: idVideo,
                             name: _.get(videoInfo, 'snippet.title'), //name video
                             index: this.queueIndex, //index for vote
@@ -327,6 +335,9 @@
                         this.ended(); //call ended to play first video in queue
                     }
                 }
+                if (comment.message.length > 100)
+                    comment.message = comment.message.substr(0, 100);
+                this.displayComments.push(comment);
             },
             async fetchNewComment() {
                 let commentsData;
@@ -336,7 +347,7 @@
                     let {token} = localStorage;
                     commentsData = await FBHelper.getComment({pid: this.pid, access_token: token});
                 }
-                
+
                 this.rawComments = this.rawComments.concat(commentsData.data);
                 this.next_page_comment = commentsData.meta.next || this.next_page_comment;
                 this.hasRawComment();
@@ -446,24 +457,25 @@
         /*overflow: hidden;*/
     }
 
-    .video-container, .video-index, .video-meta-container {
+    .video-container {
         display: flex;
     }
 
     .video-index {
+        display: flex;
         flex: none;
         flex-direction: column;
         justify-content: center;
         text-align: center;
         width: 18px;
-
+        padding: 4px;
     }
 
     .video-thumbnail-container {
         display: block;
         flex: none;
         width: 80px;
-        height: 45px;
+        height: 50px;
     }
 
     .video-thumbnail-container img {
@@ -472,6 +484,7 @@
     }
 
     .video-meta-container {
+        display: flex;
         flex: 1;
         flex-basis: 0.000000001px;
         flex-direction: column;
@@ -486,6 +499,19 @@
         font-size: 1rem;
         font-weight: 500;
         line-height: 1.2rem;
+    }
+
+    .video-from-container {
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+        padding-right: 4px;
+    }
+
+    .video-from-container img {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
     }
 
     .video-vote-container {
